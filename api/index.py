@@ -3,7 +3,7 @@ import requests
 
 app = FastAPI(
     title="TMDB Viewer API",
-    version="1.1",
+    version="1.2",
     description="API personalizada para exibir filmes e séries do TMDB, incluindo episódios recentes e detalhes completos."
 )
 
@@ -11,19 +11,24 @@ API_KEY = "95c54f7136073fc40e81f7ecd6a974e5"
 BASE_URL = "https://api.themoviedb.org/3"
 IMG_BASE = "https://image.tmdb.org/t/p/w500"
 
-# Função auxiliar para formatar resultados
+
+# Função auxiliar para formatar resultados gerais
 def formatar_lista(dados):
     resultados = []
     for item in dados:
+        data = item.get("release_date") or item.get("first_air_date")
+        ano = data.split("-")[0] if data else None
+
         resultados.append({
             "id": item.get("id"),
             "titulo": item.get("title") or item.get("name"),
             "sinopse": item.get("overview"),
             "nota": item.get("vote_average"),
-            "data_lancamento": item.get("release_date") or item.get("first_air_date"),
+            "ano": ano,
             "poster": f"{IMG_BASE}{item['poster_path']}" if item.get("poster_path") else None,
             "fundo": f"{IMG_BASE}{item['backdrop_path']}" if item.get("backdrop_path") else None,
-            "tipo": item.get("media_type", "movie")
+            "tipo": item.get("media_type") if item.get("media_type") else ("movie" if "title" in item else "tv"),
+            "generos": [g["name"] for g in item.get("genre_ids", [])] if isinstance(item.get("genre_ids"), list) else []
         })
     return resultados
 
@@ -85,6 +90,9 @@ def filme_detalhe(id: int):
                     classificacao = rel.get("certification")
                     break
 
+    data = dados.get("release_date")
+    ano = data.split("-")[0] if data else None
+
     return {
         "id": dados.get("id"),
         "titulo": dados.get("title"),
@@ -92,7 +100,7 @@ def filme_detalhe(id: int):
         "nota": dados.get("vote_average"),
         "poster": f"{IMG_BASE}{dados['poster_path']}" if dados.get("poster_path") else None,
         "fundo": f"{IMG_BASE}{dados['backdrop_path']}" if dados.get("backdrop_path") else None,
-        "data_lancamento": dados.get("release_date"),
+        "ano": ano,
         "duracao": dados.get("runtime"),
         "classificacao": classificacao or "N/A",
         "generos": [g["name"] for g in dados.get("genres", [])],
@@ -114,6 +122,9 @@ def serie_detalhe(id: int):
                 classificacao = regiao.get("rating")
                 break
 
+    data = dados.get("first_air_date")
+    ano = data.split("-")[0] if data else None
+
     return {
         "id": dados.get("id"),
         "titulo": dados.get("name"),
@@ -121,6 +132,7 @@ def serie_detalhe(id: int):
         "nota": dados.get("vote_average"),
         "poster": f"{IMG_BASE}{dados['poster_path']}" if dados.get("poster_path") else None,
         "fundo": f"{IMG_BASE}{dados['backdrop_path']}" if dados.get("backdrop_path") else None,
+        "ano": ano,
         "temporadas": dados.get("number_of_seasons"),
         "episodios": dados.get("number_of_episodes"),
         "ultimo_episodio": dados.get("last_episode_to_air"),
@@ -138,12 +150,15 @@ def novos_episodios():
     changes = requests.get(url).json()
 
     recentes = []
-    for item in changes.get("results", [])[:10]:  # Pega só os 10 mais recentes
+    for item in changes.get("results", [])[:10]:
         serie_id = item.get("id")
         detalhe_url = f"{BASE_URL}/tv/{serie_id}?api_key={API_KEY}&language=pt-BR"
         serie = requests.get(detalhe_url).json()
         ultimo = serie.get("last_episode_to_air")
         if ultimo:
+            data = ultimo.get("air_date")
+            ano = data.split("-")[0] if data else None
+
             recentes.append({
                 "serie_id": serie.get("id"),
                 "titulo": serie.get("name"),
@@ -152,7 +167,7 @@ def novos_episodios():
                 "episodio_sinopse": ultimo.get("overview"),
                 "temporada": ultimo.get("season_number"),
                 "episodio": ultimo.get("episode_number"),
-                "data_lancamento": ultimo.get("air_date"),
+                "ano": ano,
                 "nota": ultimo.get("vote_average", None)
             })
 
