@@ -1,10 +1,9 @@
 from fastapi import FastAPI
 import requests
-from datetime import datetime
 
 app = FastAPI(
     title="TMDB Viewer API",
-    version="1.2",
+    version="1.1",
     description="API personalizada para exibir filmes e séries do TMDB, incluindo episódios recentes e detalhes completos."
 )
 
@@ -12,36 +11,7 @@ API_KEY = "95c54f7136073fc40e81f7ecd6a974e5"
 BASE_URL = "https://api.themoviedb.org/3"
 IMG_BASE = "https://image.tmdb.org/t/p/w500"
 
-# 🔧 Funções auxiliares
-def extrair_ano(data_str):
-    """Extrai apenas o ano da data."""
-    if not data_str:
-        return None
-    try:
-        return datetime.strptime(data_str, "%Y-%m-%d").year
-    except:
-        return data_str
-
-def normalizar_tipo(tipo, item):
-    """Normaliza o tipo de mídia (movie → filme / tv → serie)."""
-    if tipo:
-        return "filme" if tipo == "movie" else "serie" if tipo == "tv" else tipo
-    if item.get("name"):
-        return "serie"
-    if item.get("title"):
-        return "filme"
-    return "desconhecido"
-
-def pegar_generos(item):
-    """Retorna lista de gêneros se existirem."""
-    if "genre_ids" in item:
-        return item["genre_ids"]  # IDs, pois lista completa só vem em detalhes
-    if "genres" in item:
-        return [g.get("name") for g in item["genres"]]
-    return []
-
-
-# 🧩 Formata qualquer lista de filmes/séries
+# Função auxiliar para formatar resultados
 def formatar_lista(dados):
     resultados = []
     for item in dados:
@@ -50,11 +20,10 @@ def formatar_lista(dados):
             "titulo": item.get("title") or item.get("name"),
             "sinopse": item.get("overview"),
             "nota": item.get("vote_average"),
-            "ano": extrair_ano(item.get("release_date") or item.get("first_air_date")),
+            "data_lancamento": item.get("release_date") or item.get("first_air_date"),
             "poster": f"{IMG_BASE}{item['poster_path']}" if item.get("poster_path") else None,
             "fundo": f"{IMG_BASE}{item['backdrop_path']}" if item.get("backdrop_path") else None,
-            "tipo": normalizar_tipo(item.get("media_type"), item),
-            "generos": pegar_generos(item)
+            "tipo": item.get("media_type", "movie")
         })
     return resultados
 
@@ -107,6 +76,7 @@ def filme_detalhe(id: int):
     url = f"{BASE_URL}/movie/{id}?api_key={API_KEY}&language=pt-BR&append_to_response=recommendations,release_dates"
     dados = requests.get(url).json()
 
+    # Pega classificação etária (se disponível)
     classificacao = None
     if "release_dates" in dados:
         for regiao in dados["release_dates"].get("results", []):
@@ -122,11 +92,10 @@ def filme_detalhe(id: int):
         "nota": dados.get("vote_average"),
         "poster": f"{IMG_BASE}{dados['poster_path']}" if dados.get("poster_path") else None,
         "fundo": f"{IMG_BASE}{dados['backdrop_path']}" if dados.get("backdrop_path") else None,
-        "ano": extrair_ano(dados.get("release_date")),
+        "data_lancamento": dados.get("release_date"),
         "duracao": dados.get("runtime"),
         "classificacao": classificacao or "N/A",
         "generos": [g["name"] for g in dados.get("genres", [])],
-        "tipo": "filme",
         "recomendacoes": formatar_lista(dados.get("recommendations", {}).get("results", []))
     }
 
@@ -137,6 +106,7 @@ def serie_detalhe(id: int):
     url = f"{BASE_URL}/tv/{id}?api_key={API_KEY}&language=pt-BR&append_to_response=recommendations,content_ratings"
     dados = requests.get(url).json()
 
+    # Classificação indicativa
     classificacao = None
     if "content_ratings" in dados:
         for regiao in dados["content_ratings"].get("results", []):
@@ -151,14 +121,12 @@ def serie_detalhe(id: int):
         "nota": dados.get("vote_average"),
         "poster": f"{IMG_BASE}{dados['poster_path']}" if dados.get("poster_path") else None,
         "fundo": f"{IMG_BASE}{dados['backdrop_path']}" if dados.get("backdrop_path") else None,
-        "ano": extrair_ano(dados.get("first_air_date")),
         "temporadas": dados.get("number_of_seasons"),
         "episodios": dados.get("number_of_episodes"),
         "ultimo_episodio": dados.get("last_episode_to_air"),
         "proximo_episodio": dados.get("next_episode_to_air"),
         "classificacao": classificacao or "N/A",
         "generos": [g["name"] for g in dados.get("genres", [])],
-        "tipo": "serie",
         "recomendacoes": formatar_lista(dados.get("recommendations", {}).get("results", []))
     }
 
@@ -170,7 +138,7 @@ def novos_episodios():
     changes = requests.get(url).json()
 
     recentes = []
-    for item in changes.get("results", [])[:10]:
+    for item in changes.get("results", [])[:10]:  # Pega só os 10 mais recentes
         serie_id = item.get("id")
         detalhe_url = f"{BASE_URL}/tv/{serie_id}?api_key={API_KEY}&language=pt-BR"
         serie = requests.get(detalhe_url).json()
@@ -184,7 +152,7 @@ def novos_episodios():
                 "episodio_sinopse": ultimo.get("overview"),
                 "temporada": ultimo.get("season_number"),
                 "episodio": ultimo.get("episode_number"),
-                "ano": extrair_ano(ultimo.get("air_date")),
+                "data_lancamento": ultimo.get("air_date"),
                 "nota": ultimo.get("vote_average", None)
             })
 
